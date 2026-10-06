@@ -69,7 +69,10 @@ def _adjusted_grating_terms(  # noqa: PLR0917
 
 
 def _validate_dispersion_denominator(dispersion_denominator, *, atol: float = 1e-15):
-    denominator_value = u.Quantity(dispersion_denominator, copy=False).to_value(1 / u.m)
+    if isinstance(dispersion_denominator, u.Quantity):
+        denominator_value = dispersion_denominator.to_value(1 / u.m)
+    else:
+        denominator_value = np.asarray(dispersion_denominator)
     if np.any(np.isclose(denominator_value, 0.0, atol=atol, rtol=0.0)):
         msg = (
             "The grism dispersion denominator is too close to zero, which "
@@ -84,7 +87,7 @@ class _GratingEquationBase(Model):
     Internal base class for shared grating-equation parameters.
     """
 
-    groove_density = Parameter(default=1 / u.m, description="Grating ruling density.")
+    groove_density = Parameter(default=1, description="Grating ruling density.")
     spectral_order = Parameter(default=1, description="Spectral order.")
 
 
@@ -96,18 +99,13 @@ class _GrismEquationBase(_GratingEquationBase):
     `RefractedAngleSineModel` and `WavelengthFromGrismEquation`.
     """
 
-    reference_wavelength = Parameter(
-        default=0 * u.m, description="Reference wavelength."
-    )
+    reference_wavelength = Parameter(default=0, description="Reference wavelength.")
     refractive_index = Parameter(default=1, description="Refractive index.")
     refractive_index_derivative = Parameter(
-        default=0 / u.m,
+        default=0,
         description="Derivative of refractive index with respect to wavelength.",
     )
-    out_of_plane_angle = Parameter(
-        default=0 * u.deg,
-        description="Out-of-plane grating angle.",
-    )
+    out_of_plane_angle = Parameter(default=0, description="Out-of-plane grating angle.")
 
 
 class RefractedAngleSineModel(_GrismEquationBase):
@@ -141,30 +139,35 @@ class RefractedAngleSineModel(_GrismEquationBase):
     common internal base class so that the parameter definitions stay
     consistent between the two models.
 
+    Parameters may be given as plain numbers or as `~astropy.units.Quantity`
+    objects, but not a mixture of the two. Plain numbers must use one consistent
+    length unit for every length-dependent parameter, and radians for angles.
+
     Parameters
     ----------
     reference_pixel : float
         Pixel coordinate of the reference point (0-indexed).
-    reference_wavelength : `~astropy.units.Quantity`, optional
-        Wavelength at the reference pixel. Defaults to ``0 m``.
-    dispersion : `~astropy.units.Quantity`, optional
-        Wavelength dispersion per pixel. Defaults to ``0 m/pix``.
-    groove_density : `~astropy.units.Quantity`, optional
-        Grating ruling density in units of 1/length. Defaults to ``1 /m``.
+    reference_wavelength : float or `~astropy.units.Quantity`, optional
+        Wavelength at the reference pixel, in units of length. Defaults to ``0``.
+    dispersion : float or `~astropy.units.Quantity`, optional
+        Wavelength dispersion per pixel, in units of length per pixel.
+        Defaults to ``0``.
+    groove_density : float or `~astropy.units.Quantity`, optional
+        Grating ruling density, in units of 1/length. Defaults to ``1``.
     spectral_order : float or `~astropy.units.Quantity`, optional
         Spectral order. Dimensionless. Defaults to ``1``.
-    incident_angle : `~astropy.units.Quantity`, optional
-        Incident grating angle. Defaults to ``0 deg``.
+    incident_angle : float or `~astropy.units.Quantity`, optional
+        Incident grating angle, in radians if a plain number. Defaults to ``0``.
     refractive_index : float or `~astropy.units.Quantity`, optional
         Refractive index at the reference wavelength. Dimensionless.
         Defaults to ``1``.
-    refractive_index_derivative : `~astropy.units.Quantity`, optional
-        Derivative of refractive index with respect to wavelength. Defaults
-        to ``0 /m``.
-    out_of_plane_angle : `~astropy.units.Quantity`, optional
-        Out-of-plane grating angle. Defaults to ``0 deg``.
-    camera_angle : `~astropy.units.Quantity`, optional
-        Camera angle. Defaults to ``0 deg``.
+    refractive_index_derivative : float or `~astropy.units.Quantity`, optional
+        Derivative of refractive index with respect to wavelength, in units of
+        1/length. Defaults to ``0``.
+    out_of_plane_angle : float or `~astropy.units.Quantity`, optional
+        Out-of-plane grating angle, in radians if a plain number. Defaults to ``0``.
+    camera_angle : float or `~astropy.units.Quantity`, optional
+        Camera angle, in radians if a plain number. Defaults to ``0``.
     """
 
     _separable = False
@@ -174,31 +177,23 @@ class RefractedAngleSineModel(_GrismEquationBase):
     n_outputs = 1
 
     reference_pixel = Parameter(default=0, description="Reference pixel (0-indexed).")
-    reference_wavelength = Parameter(
-        default=0 * u.m, description="Reference wavelength."
-    )
-    dispersion = Parameter(
-        default=0 * u.m / u.pix,
-        description="Wavelength dispersion per pixel.",
-    )
-    incident_angle = Parameter(default=0 * u.deg, description="Incident grating angle.")
-    camera_angle = Parameter(
-        default=0 * u.deg,
-        description="Camera angle.",
-    )
+    reference_wavelength = Parameter(default=0, description="Reference wavelength.")
+    dispersion = Parameter(default=0, description="Wavelength dispersion per pixel.")
+    incident_angle = Parameter(default=0, description="Incident grating angle.")
+    camera_angle = Parameter(default=0, description="Camera angle.")
 
     def __init__(  # noqa: PLR0917
         self,
         reference_pixel: float = 0,
-        reference_wavelength: u.Quantity = 0 * u.m,
-        dispersion: u.Quantity = 0 * u.m / u.pix,
-        groove_density: u.Quantity = 1 / u.m,
+        reference_wavelength: float | u.Quantity = 0,
+        dispersion: float | u.Quantity = 0,
+        groove_density: float | u.Quantity = 1,
         spectral_order: float | u.Quantity = 1,
-        incident_angle: u.Quantity = 0 * u.deg,
+        incident_angle: float | u.Quantity = 0,
         refractive_index: float | u.Quantity = 1,
-        refractive_index_derivative: u.Quantity = 0 / u.m,
-        out_of_plane_angle: u.Quantity = 0 * u.deg,
-        camera_angle: u.Quantity = 0 * u.deg,
+        refractive_index_derivative: float | u.Quantity = 0,
+        out_of_plane_angle: float | u.Quantity = 0,
+        camera_angle: float | u.Quantity = 0,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -244,7 +239,10 @@ class RefractedAngleSineModel(_GrismEquationBase):
 
     @staticmethod
     def _wavelength_offset(pixel, reference_pixel, dispersion):
-        return ((pixel - reference_pixel) * u.pix) * dispersion
+        pixel_offset = pixel - reference_pixel
+        if isinstance(dispersion, u.Quantity):
+            pixel_offset = pixel_offset * u.pix
+        return pixel_offset * dispersion
 
     @staticmethod
     def evaluate(  # noqa: PLR0917
@@ -326,8 +324,8 @@ class WavelengthFromGratingEquation(_GratingEquationBase):
 
     Parameters
     ----------
-    groove_density : `~astropy.units.Quantity`
-        Grating ruling density in units of 1/length.
+    groove_density : float or `~astropy.units.Quantity`
+        Grating ruling density, in units of 1/length.
     spectral_order : int or `~astropy.units.Quantity`
         Spectral order. Dimensionless.
     Examples
@@ -351,7 +349,7 @@ class WavelengthFromGratingEquation(_GratingEquationBase):
 
     def __init__(
         self,
-        groove_density: u.Quantity,
+        groove_density: float | u.Quantity,
         spectral_order: float | u.Quantity,
         **kwargs,
     ) -> None:
@@ -379,9 +377,9 @@ class WavelengthFromGratingEquation(_GratingEquationBase):
             Sine of the incident angle.
         alpha_out : float
             Sine of the refracted angle.
-        groove_density : `~astropy.units.Quantity`
-            Grating ruling density in units of ``1/m``.
-        spectral_order : `~astropy.units.Quantity`
+        groove_density : float or `~astropy.units.Quantity`
+            Grating ruling density, in units of 1/length.
+        spectral_order : float or `~astropy.units.Quantity`
             Spectral order (dimensionless).
         """
         return (alpha_in + alpha_out) / _grating_term(groove_density, spectral_order)
@@ -405,23 +403,26 @@ class WavelengthFromGrismEquation(_GrismEquationBase):
     class so that the parameter definitions remain aligned between the two
     models.
 
+    Parameters may be given as plain numbers or as `~astropy.units.Quantity`
+    objects, but not a mixture of the two. Plain numbers must use one consistent
+    length unit for every length-dependent parameter, and radians for angles.
+
     Parameters
     ----------
-    groove_density : `~astropy.units.Quantity`
-        Grating ruling density in units of 1/length.
+    groove_density : float or `~astropy.units.Quantity`
+        Grating ruling density, in units of 1/length.
     spectral_order : int or `~astropy.units.Quantity`
         Spectral order. Dimensionless.
-    reference_wavelength : `~astropy.units.Quantity`, optional
-        Wavelength at the reference pixel in units of ``m``. Defaults to
-        ``0 m``.
+    reference_wavelength : float or `~astropy.units.Quantity`, optional
+        Wavelength at the reference pixel, in units of length. Defaults to ``0``.
     refractive_index : float or `~astropy.units.Quantity`, optional
         Refractive index at the reference wavelength. Dimensionless.
         Defaults to ``1``.
-    refractive_index_derivative : `~astropy.units.Quantity`, optional
-        Derivative of refractive index with respect to wavelength. Defaults
-        to ``0 /m``.
-    out_of_plane_angle : `~astropy.units.Quantity`, optional
-        Out-of-plane grating angle. Defaults to ``0 deg``.
+    refractive_index_derivative : float or `~astropy.units.Quantity`, optional
+        Derivative of refractive index with respect to wavelength, in units of
+        1/length. Defaults to ``0``.
+    out_of_plane_angle : float or `~astropy.units.Quantity`, optional
+        Out-of-plane grating angle, in radians if a plain number. Defaults to ``0``.
 
     Examples
     --------
@@ -463,12 +464,12 @@ class WavelengthFromGrismEquation(_GrismEquationBase):
 
     def __init__(  # noqa: PLR0917
         self,
-        groove_density: u.Quantity,
+        groove_density: float | u.Quantity,
         spectral_order: float | u.Quantity,
-        reference_wavelength: u.Quantity = 0 * u.m,
+        reference_wavelength: float | u.Quantity = 0,
         refractive_index: float | u.Quantity = 1,
-        refractive_index_derivative: u.Quantity = 0 / u.m,
-        out_of_plane_angle: u.Quantity = 0 * u.deg,
+        refractive_index_derivative: float | u.Quantity = 0,
+        out_of_plane_angle: float | u.Quantity = 0,
         **kwargs,
     ) -> None:
         super().__init__(

@@ -2,7 +2,6 @@ import astropy.units as u
 import numpy as np
 import pytest
 from astropy.modeling.models import Identity
-from astropy.modeling.parameters import InputParameterError
 from astropy.wcs import WCS
 from numpy.testing import assert_allclose
 
@@ -42,10 +41,11 @@ def test_angles_grating_equation():
 def test_wavelength_grating_equation_units() -> None:
     alpha_in = np.linspace(0.01, 0.05, 4)
 
-    # groove_density has units baked into its Parameter default, so a bare
-    # number is no longer silently coerced -- it must raise instead.
-    with pytest.raises(InputParameterError):
-        sp.WavelengthFromGratingEquation(20000, -1)
+    # Bare numbers.
+    model = sp.WavelengthFromGratingEquation(20000, -1)
+    wave = -(alpha_in + alpha_in) / (20000 * -1)
+    result = model(-alpha_in, -alpha_in)
+    assert_allclose(result, wave)
 
     # Explicit Quantity inputs.
     model = sp.WavelengthFromGratingEquation(20000 * 1 / u.m, -1)
@@ -98,21 +98,35 @@ def test_refracted_angle_sine_model_basic() -> None:
     assert u.allclose(result, np.sin(reference_refracted_angle), atol=1e-12)
 
 
-def test_refracted_angle_sine_model_bare_number_raises() -> None:
-    """Bare-number arguments are no longer coerced -- they should raise."""
-    with pytest.raises(InputParameterError):
-        sp.RefractedAngleSineModel(
-            reference_pixel=0,
-            reference_wavelength=0,  # requires a Quantity in m
-            dispersion=0,  # requires a Quantity in m/pix
-            groove_density=1,  # requires a Quantity in 1/m
-            spectral_order=1,
-            incident_angle=0,  # requires a Quantity in deg
-            refractive_index=1,
-            refractive_index_derivative=0,  # requires a Quantity in 1/m
-            out_of_plane_angle=0,  # requires a Quantity in deg
-            camera_angle=0,  # requires a Quantity in deg
-        )
+def test_refracted_angle_sine_model_bare_numbers() -> None:
+    """Plain-number parameters work, with angles in radians.
+
+    With ``groove_density * spectral_order * reference_wavelength = 1`` and
+    ``sin(incident_angle) = 0.5``, the reference refracted angle is
+    ``arcsin(0.5) = pi/6``. The dispersion is chosen so that one pixel away the
+    arctan term is ``pi/12``, giving ``sin(pi/6 + pi/12) = sin(pi/4)``.
+    """
+    groove_density = 2e6
+    dispersion = np.tan(np.pi / 12) * np.cos(np.pi / 6) / groove_density
+    model = sp.RefractedAngleSineModel(
+        reference_pixel=10,
+        reference_wavelength=5e-7,
+        dispersion=dispersion,
+        groove_density=groove_density,
+        spectral_order=1,
+        incident_angle=np.pi / 6,
+    )
+    result = model(np.array([10.0, 11.0]))
+    assert not isinstance(result, u.Quantity)
+    assert_allclose(result, [0.5, np.sqrt(2) / 2])
+
+
+def test_wavelength_grism_equation_bare_numbers() -> None:
+    """Plain-number parameters reduce to the classic grating equation by default."""
+    model = sp.WavelengthFromGrismEquation(groove_density=1e6, spectral_order=1)
+    result = model(0.2, 0.3)
+    assert not isinstance(result, u.Quantity)
+    assert_allclose(result, 5e-7)
 
 
 def test_refracted_angle_sine_model_defaults_return_zero() -> None:
